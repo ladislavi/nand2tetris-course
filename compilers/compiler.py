@@ -15,6 +15,89 @@ logging.basicConfig(
 )
 
 
+class JackTokenizer(object):
+
+    _KEYWORDS = {
+        "class",
+        "constructor",
+        "function",
+        "method",
+        "field",
+        "static",
+        "var",
+        "int",
+        "char",
+        "boolean",
+        "void",
+        "true",
+        "false",
+        "null",
+        "this",
+        "let",
+        "do",
+        "if",
+        "else",
+        "while",
+        "return",
+    }
+
+    _SYMBOLS = "{}()[\]\.,;\+-\*\/&\|<>=~"
+    _IDENTIFIER_RE = "^[a-zA-Z_][a-zA-Z0-9_]+"
+    _STRING_CONSTANT_RE = "^(\".*\")"
+    _INT_CONSTANT_RE = "^[0-9]+"
+    _MIN_INT = 0
+    _MAX_INT = 32767
+
+    def _is_symbol_or_whitespace(self, char):
+        if char in self._SYMBOLS + " ":
+            return True
+        else:
+            return False
+
+    def _get_single_token(self, input):
+        idx = 0
+        if self._is_symbol_or_whitespace(input[idx]):
+            return input[idx]
+        elif input[idx] == '"':
+            sr = re.search(self._STRING_CONSTANT_RE, input)
+            return sr.group(1)
+
+        while True:
+            idx += 1
+            if self._is_symbol_or_whitespace(input[idx]):
+                return input[:idx]
+
+    def _tokenize(self, input):
+        tokens = []
+        while input:
+            token = self._get_single_token(input)
+            if not token == " ":
+                tokens.append(token)
+            input = input[len(token) :]
+
+        return tokens
+
+    def _analyze_token(self, token):
+        if token in self._SYMBOLS:
+            return token, 'symbol'
+        elif token in self._KEYWORDS:
+            return token, 'keyword'
+        elif re.match(self._STRING_CONSTANT_RE, token):
+            return token[1:-1], 'stringConst'
+        elif re.match(self._INT_CONSTANT_RE, token):
+            if self._MIN_INT <= int(token) <= self._MAX_INT:
+                return token, 'intConst'
+            else:
+                raise ValueError(f"Integer out of bounds ({self._MIN_INT}..{self._MAX_INT}): {token}")
+        elif re.match(self._IDENTIFIER_RE, token):
+            return token, 'identifier'
+        else:
+            raise ValueError(f"Unknown token type: '{token}'")
+
+    def tokenize(self, input):
+        tokens = self._tokenize(input)
+        return [self._analyze_token(token) for token in tokens]
+
 class JackAnalyzer(object):
 
     _KEYWORDS = {
@@ -285,13 +368,13 @@ class JackAnalyzer(object):
         if sr:
             subroutine_name = sr.group(1)
             if len(subroutine_name) > 1:
-                subroutine_call += ("identifier", subroutine_name[0]),
-                subroutine_call += ("symbol", "."),
-                subroutine_call += ("identifier", subroutine_name[1]),
+                subroutine_call += (("identifier", subroutine_name[0]),)
+                subroutine_call += (("symbol", "."),)
+                subroutine_call += (("identifier", subroutine_name[1]),)
             else:
-                subroutine_call += ("identifier", subroutine_name[0]),
+                subroutine_call += (("identifier", subroutine_name[0]),)
 
-            subroutine_call += self._analyze_expression_list(sr.group(2)),
+            subroutine_call += (self._analyze_expression_list(sr.group(2)),)
         return code, subroutine_call
 
     def _analyze_expression_list(self, code):
@@ -299,28 +382,26 @@ class JackAnalyzer(object):
 
     def _analyze_expression(self, code):
         # if is_nested (= has "()"):
-          # _analyze_expression(nested_part)
+        # _analyze_expression(nested_part)
         # elif has_unary_op:
-          # unary_op + _
-
+        # unary_op + _
 
         pass
 
     def _analyze_unary_op(self, code):
-
-
+        pass
 
     def _analyze_term(self, code):
         if self._is_constant(code):
             return self._analyze_constants(code)
-
-        is_subroutine_call
-        is_expression
-        has_unary_op
         pass
 
     def _is_constant(self, code):
-        if re.match(self._STRING_CONSTANT_RE, code) or re.match(self._INTEGER_CONSTANT_RE, code) or code in self._KEYWORDS:
+        if (
+            re.match(self._STRING_CONSTANT_RE, code)
+            or re.match(self._INTEGER_CONSTANT_RE, code)
+            or code in self._KEYWORDS
+        ):
             return True
         else:
             return False
@@ -347,8 +428,9 @@ class JackAnalyzer(object):
 
 
 def main(filepath):
-    compiler = JackCompiler()
-    compiler.compile_file_or_dir(filepath)
+    # compiler = JackCompiler()
+    # compiler.compile_file_or_dir(filepath)
+    pass
 
 
 if __name__ == "__main__":
