@@ -7,5 +7,6 @@
 # Other
 *.pyc
 *.exe
+.pytest_cache/
 .venv/
 .idea/

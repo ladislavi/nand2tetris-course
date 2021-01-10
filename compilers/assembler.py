@@ -6,7 +6,7 @@ from utils import file_parsing
 
 logger = logging.getLogger("assembler")
 logger.setLevel(logging.INFO)
-fh = logging.FileHandler("assembler.log")
+fh = logging.FileHandler("logs/assembler.log")
 fh.setLevel(logging.INFO)
 logger.addHandler(fh)
 

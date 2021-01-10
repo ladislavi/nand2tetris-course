@@ -1,6 +1,7 @@
 import logging
 import argparse
 import utils.file_utils as fu
+import vm_translator as vt
 import re
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
@@ -498,6 +499,7 @@ class JackCompiler(object):
         return xmlstr[23:]  # Need to remove header for comparison files :(
 
     def to_vm(self, parse_tree):
+        self.vm_code = []
         self._compile_class(parse_tree)
         return '\n'.join(self.vm_code)
 
@@ -559,12 +561,16 @@ class JackCompiler(object):
     def _compile_class(self, token):
         self.class_name = token.val[1].val
         self.class_vars = {}
+        self.labels = []
+        logging.info(f"Compiling class: {self.class_name}")
         i = 2
         while i < len(token.val):
             if token.val[i].label == 'classVarDec':
                 self._compile_class_var_dec(token.val[i])
             elif token.val[i].label == 'subroutineDec':
                 self._compile_subroutine_dec(token.val[i])
+            else:
+                raise ValueError(f"Unexpected token type: {token.val[1]}")
             i += 1
 
     def _compile_class_var_dec(self, token):
@@ -574,18 +580,19 @@ class JackCompiler(object):
         while i < len(token.val):
             self._add_class_var(token.val[i].val, type, kind)
             i += 1
+        logging.info(f"Compiling classVarDec: {kind} {type} with {i-2} vars")
+
 
     def _compile_subroutine_var_dec(self, token):
         kind = 'local'
         type = token.val[1].val
         i = 2
         while i < len(token.val):
-            self._add_class_var(token.val[i].val, type, kind)
+            self._add_subroutine_var(token.val[i].val, type, kind)
             i += 1
+        logging.info(f"Compiling subroutineVarDec: {kind} {type} with {i-2} vars")
 
-    def _compile_subroutine_dec(self, token):
-        self.subroutine_vars = {}
-        param_list = token.val[3].val
+    def _compile_param_list(self, param_list):
         if param_list:
             n_param = int(len(param_list) / 2)
             i = 0
@@ -597,24 +604,32 @@ class JackCompiler(object):
         else:
             n_param = 0
 
-        self._write_function(f"{self.class_name}.{token.val[2].val}", n_param)
+        return n_param
+
+    def _compile_subroutine_dec(self, token):
+        self.subroutine_vars = {}
+        logging.info(f"Compiling subroutine: {token.val[0].val} {self.class_name}.{token.val[2].val}")
+        if token.val[0].val == 'method':
+            self._add_subroutine_var('this', self.class_name, 'argument')
+
+        n_params = self._compile_param_list(token.val[3].val)
+        subroutine_body = token.val[4].val
+        i = 0
+        while subroutine_body[i].label == 'varDec':
+            self._compile_subroutine_var_dec(subroutine_body[i])
+            i += 1
+        self._write_function(f"{self.class_name}.{token.val[2].val}", self._var_count('subroutine', 'local'))
 
         if token.val[0].val == 'method':
             self._write_push('argument', 0)
             self._write_pop('pointer', 0)
         elif token.val[0].val == 'constructor':
-            self._write_push('constant', n_param)
+            self._write_push('constant', self._var_count('class', 'field'))
             self._write_call('Memory.alloc', 1)
             self._write_pop('pointer', 0)
-        subroutine_body = token.val[4].val
-        if subroutine_body:
-            i = 0
-            while i < len(subroutine_body):
-                if subroutine_body[i].label == 'varDec':
-                    self._compile_subroutine_var_dec(subroutine_body[i])
-                if subroutine_body[i].label == 'statements':
-                    self._compile_statements(subroutine_body[i])
-                i += 1
+
+        if subroutine_body[i].label == 'statements':
+            self._compile_statements(subroutine_body[i])
 
     def _compile_expression(self, token):
         term = token.val[0]
@@ -632,7 +647,7 @@ class JackCompiler(object):
                 self._compile_int_const(token.val[0])
             elif token.val[0].label == "stringConstant":
                 self._compile_str_const(token.val[0])
-            elif token.val[0].label == 'keywordConstant':
+            elif token.val[0].label == 'keyword':
                 self._compile_keyword_const(token.val[0])
             elif token.val[0].label == 'expression':
                 self._compile_expression(token.val[0])
@@ -644,26 +659,36 @@ class JackCompiler(object):
                 self._write_unary_op(token.val[0].val)
             elif token.val[0].label == "identifier":
                 if token.val[1].label == 'expression':
-                    pass  # array
+                    # Array
+                    self._write_push(*self._fetch_var(token.val[0].val))
+                    self._compile_expression(token.val[1])
+                    self._write_arithmetic("+")
+                    self._write_pop('pointer', 1)
+                    self._write_push('that', 0)
                 else:
-                    n_args = len(token.val[-1].val)
-                    self._compile_expression_list(token.val[-1])
-                    if token.val[1].label == 'identifier':
-                        if self._fetch_var(token.val[0].val):
-                            # Method call
-                            self._write_push(self._fetch_var(token.val[0].val))
-                            self._write_call(
-                                f"{token.val[0].val}.{token.val[1].val}", n_args + 1
-                            )
-                        else:
-                            # Function or constructor
-                            self._write_call(
-                                f"{token.val[0].val}.{token.val[1].val}", n_args
-                            )
-                    elif token.val[1].label == 'expressionList':
-                        # Method call
-                        self._write_push(self._fetch_var(token.val[0].val))
-                        self._write_call(token.val[0].val, n_args + 1)
+                    self._compile_func_call(token.val)
+
+    def _compile_func_call(self, tokens):
+        n_args = len(tokens[-1].val)
+        func_name = None
+        if tokens[1].label == 'expressionList' or self._fetch_var(tokens[0].val):
+            # Method
+            n_args += 1
+            if len(tokens) == 2:
+                # method()
+                func_name = tokens[0].val
+                self._write_push('this', 0)
+            elif len(tokens) == 3:
+                # var.method()
+                self._write_push(*self._fetch_var(tokens[0].val))
+                func_name = f"{self._get_var_type(tokens[0].val)}.{tokens[1].val}"
+        elif tokens[1].label == 'identifier' and not self._fetch_var(tokens[0].val):
+            # Class.func()
+            func_name = f"{tokens[0].val}.{tokens[1].val}"
+        else:
+            raise ValueError(f"Expected function call, got: {tokens}")
+        self._compile_expression_list(tokens[-1])
+        self._write_call(func_name, n_args)
 
     def _compile_expression_list(self, token):
         for t in token.val:
@@ -677,7 +702,7 @@ class JackCompiler(object):
         self._write_call('String.new', 1)
         for char in token.val:
             self._write_push('constant', ord(char))
-            self._write_call('String.append', 2)
+            self._write_call('String.appendChar', 2)
 
     def _compile_keyword_const(self, token):
         if token.val == 'null' or token.val == 'false':
@@ -687,6 +712,8 @@ class JackCompiler(object):
             self._write_unary_op('-')
         elif token.val == 'this':
             self._write_push('pointer', 0)
+        else:
+            raise ValueError(f"Unexpected keywordConst: {token.val}")
     
     def _compile_statements(self, token):
         for statement in token.val:
@@ -705,23 +732,22 @@ class JackCompiler(object):
             self._compile_while(token)
 
     def _compile_do(self, token):
-        expression_list = token.val[-1]
-        self._compile_expression_list(expression_list)
-        n_args = len(expression_list.val)
-        if len(token.val) == 3:
-            self._write_push('this', 0)
-            self._write_call(token.val[1].val, n_args)
-        else:
-            if self._fetch_var(token.val[1].val):
-                self._write_push(self._fetch_var(token.val[1].val))
-                self._write_call(f"{token.val[1].val}.{token.val[2].val}", n_args + 1)
-            else:
-                self._write_call(f"{token.val[1].val}.{token.val[2].val}", n_args)
+        self._compile_func_call(token.val[1:])
         self._write_pop('temp', 0)
 
     def _compile_let(self, token):
-        self._compile_expression(token.val[2])
-        self._write_pop(*self._fetch_var(token.val[1].val))
+        self._compile_expression(token.val[-1])
+        if len(token.val) == 4:
+            # Array
+            self._compile_expression(token.val[2])
+            self._write_push(*self._fetch_var(token.val[1].val))
+            self._write_arithmetic("+")
+            self._write_pop('pointer', 1)
+            self._write_pop('that', 0)
+        elif len(token.val) == 3:
+            self._write_pop(*self._fetch_var(token.val[1].val))
+        else:
+            raise ValueError(f"Got unexpected let statement: {token.val}")
 
     def _compile_return(self, token):
         if len(token.val) > 1:
@@ -754,6 +780,14 @@ class JackCompiler(object):
         self._write_goto(l1)
         self._write_label(l2)
 
+    def _get_var_type(self, name):
+        if name in self.subroutine_vars:
+            return self.subroutine_vars[name]['type']
+        elif name in self.class_vars:
+            return self.class_vars[name]['type']
+        else:
+            logging.debug(f"Failed to find var: '{name}'")
+
     def _fetch_var(self, name):
         if name in self.subroutine_vars:
             return (
@@ -761,8 +795,13 @@ class JackCompiler(object):
                 self.subroutine_vars[name]['index'],
             )
         elif name in self.class_vars:
+            if self.class_vars[name]['kind'] == 'field':
+                segment = 'this'
+            else:
+                segment = self.class_vars[name]['kind']
+
             return (
-                self.class_vars[name]['kind'],
+                segment,
                 self.class_vars[name]['index'],
             )
         else:
@@ -824,15 +863,19 @@ def write_vm(filepath):
         fu.to_file(vm_code, fp, '.vm')
         logging.info(f"{'-' * 88}")
 
+def write_asm(filepath):
+    write_vm(filepath)
+    vm_translator = vt.VmTranslator()
+    vm_translator.translate_file_or_dir(filepath)
 
 def main(filepath, mode):
     logging.info(f"Got args: {filepath}, {mode}")
-    if mode == 'a':
-        analyze(filepath, True)
-    elif mode == 'c':
+    if mode == 'vm':
         write_vm(filepath=filepath)
+    elif mode == 'asm':
+        write_asm(filepath=filepath)
     else:
-        raise ValueError(f"Invalid 'mode' param. Got '{mode}', expected 'a' or 'c'")
+        raise ValueError(f"Invalid 'mode' param. Got '{mode}', expected 'vm' or 'asm'")
 
 
 if __name__ == "__main__":
@@ -845,7 +888,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "mode",
         type=str,
-        help="'a' to analyze, outputing .xml, 'c' to compile, outputing .vm",
+        help="'vm' to create virtual machine code (*.vm), 'asm' to compile into assembly (*.asm)",
     )
     args = parser.parse_args()
     main(args.filepath, args.mode)
