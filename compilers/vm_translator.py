@@ -1,8 +1,8 @@
 import logging
 import argparse
 import utils.file_parsing as fp
+import utils.file_utils as fu
 import os
-from pathlib import Path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,22 +76,15 @@ class VmTranslator:
     def translate_file_or_dir(self, filepath):
         asm_lines = []
         if os.path.isdir(filepath):
-            out_file = f"{filepath}.asm"
             # only bootstrap dirs
             asm_lines += ["@256", "D=A", "@SP", "M=D"]
             asm_lines += self.translate_line("call Sys.init 0")
-        else:
-            out_file = f"{Path(filepath).stem}.asm"
 
         filepaths = fp.get_filepaths(filepath)
         for _file in filepaths:
             asm_lines += self.translate_file(_file)
 
-        with open(out_file, mode="wt") as f_out:
-            f_out.write("\n".join(asm_lines))
-            logging.info(
-                f"Output file: {f_out.name}, with {len(asm_lines)} of assembly code"
-            )
+        fu.to_file('\n'.join(asm_lines), filepath, '.asm')
 
     def translate_file(self, filepath):
         self.filename = fp.get_filename(filepath)
@@ -169,7 +162,7 @@ class VmTranslator:
         return save_frame
 
     def _reposition_pointers(self, n_args):
-        arg_pointer = [f"@{5+n_args}", "D=A", "@SP", "D=M-D", "@ARG", "M=D"]
+        arg_pointer = [f"@{5 + n_args}", "D=A", "@SP", "D=M-D", "@ARG", "M=D"]
         lcl_pointer = ["@SP", "D=M", "@LCL", "M=D"]
         return arg_pointer + lcl_pointer
 
@@ -211,7 +204,7 @@ class VmTranslator:
         assembly = []
         for idx, pointer in enumerate(self._FRAME_POINTERS[::-1]):
             assembly += [
-                f"@{idx+1}",
+                f"@{idx + 1}",
                 "D=A",
                 f"@{frame}",
                 "A=M-D",
