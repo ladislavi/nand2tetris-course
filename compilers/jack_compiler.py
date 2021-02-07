@@ -805,7 +805,7 @@ class JackCompiler(object):
                 self.class_vars[name]['index'],
             )
         else:
-            logging.info(f"Failed to find var: '{name}'")
+            logging.debug(f"Failed to find var: '{name}'")
 
     def _var_count(self, scope, kind):
         if scope == 'class':
