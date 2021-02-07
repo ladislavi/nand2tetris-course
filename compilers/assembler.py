@@ -6,7 +6,7 @@ from utils import file_parsing
 
 logger = logging.getLogger("assembler")
 logger.setLevel(logging.INFO)
-fh = logging.FileHandler("logs/assembler.log")
+fh = logging.StreamHandler()
 fh.setLevel(logging.INFO)
 logger.addHandler(fh)
 
@@ -185,7 +185,7 @@ class Assembler:
             logger.info(f"{line.ljust(15)}  >>  {out_line}")
             machine_code.append(self.translate_line(line))
 
-        with open(f"{Path(filepath).stem}.hack", mode="wt") as f_out:
+        with open(f"out/{Path(filepath).stem}.hack", mode="wt") as f_out:
             f_out.write("\n".join(machine_code))
 
 
