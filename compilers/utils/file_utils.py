@@ -6,10 +6,12 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
+
 def load_lines(filepath):
     with open(filepath) as f:
         lines = f.readlines()
     return lines
+
 
 def to_file(contents, filepath, suffix='.vm'):
     """Write contents to file with the same name and new suffix"""
@@ -18,6 +20,7 @@ def to_file(contents, filepath, suffix='.vm'):
     with open(out_filepath, "w") as f:
         f.write(contents)
     logging.info(f"Output results to {out_filepath}")
+
 
 def remove_whitespace(lines):
     """Remove whitespace and comments, leaving only valid instructions"""
@@ -29,6 +32,7 @@ def remove_whitespace(lines):
             if line_parts[0]:
                 instructions.append(line_parts[0].strip())
     return instructions
+
 
 def flatten_file(filepath):
     """Flatten .jack file into a single string"""
@@ -52,9 +56,6 @@ def parse_file(filepath):
     """Parse file into list of valid instructions"""
     lines = load_lines(filepath)
     return remove_whitespace(lines)
-
-def clear_directory(filepath):
-    pass
 
 
 def get_filename(filepath):
