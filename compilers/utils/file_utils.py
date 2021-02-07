@@ -53,6 +53,9 @@ def parse_file(filepath):
     lines = load_lines(filepath)
     return remove_whitespace(lines)
 
+def clear_directory(filepath):
+    pass
+
 
 def get_filename(filepath):
     return pathlib.Path(filepath).stem
